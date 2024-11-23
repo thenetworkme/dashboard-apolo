@@ -1,143 +1,207 @@
-import tkinter as tk
-from tkinter import ttk
-from ttkthemes import ThemedTk
+import dash
+from dash import dcc, html
 import plotly.graph_objects as go
+from dash.dependencies import Input, Output
 import numpy as np
-import plotly.io as pio
-from PIL import Image, ImageTk
-import io
+import dash_bootstrap_components as dbc
 
-# Datos iniciales
-task_a_data = np.random.rand(18)  # Intensidades para Task A (1x18)
-wavelengths = np.linspace(380, 780, 18)  # Longitudes de onda en nm (380 a 780 nm)
-task_c_data = np.random.rand(180)  # Distancias para Task C (1x180)
+# Inicializar la app con un tema Bootstrap
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.COSMO])
+app.title = "Dashboard"
 
 
-# Función para actualizar los datos y graficarlos para Task A
-def actualizar_task_a():
-    global task_a_data
-    task_a_data = np.random.rand(18)  # Simulación de datos en tiempo real
-
-    # Crear gráfico interactivo para Task A (Espectro de Intensidades)
-    fig_a = go.Figure()
-
-    fig_a.add_trace(
-        go.Scatter(
+def generar_espectro(inicio, fin, dynamic_factor=0):
+    wavelengths = np.linspace(380, 780, 400)
+    intensities = np.exp(
+        -0.5 * ((wavelengths - (inicio + fin) / 2 + dynamic_factor) ** 2) / 4000
+    )
+    colors = [
+        f"rgb({int(r)}, {int(g)}, {int(b)})"
+        for r, g, b in [wavelength_to_rgb(w) for w in wavelengths]
+    ]
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
             x=wavelengths,
-            y=task_a_data,
-            mode="lines+markers",
-            line=dict(color=task_a_data, colorscale="Jet", width=4),
-            marker=dict(size=10, color=task_a_data, colorscale="Jet", showscale=True),
+            y=intensities,
+            marker=dict(color=colors),
+            showlegend=False,
         )
     )
-
-    fig_a.update_layout(
-        title="Espectro de Intensidades (Task A)",
+    fig.update_layout(
+        title="Espectro de Colores",
         xaxis_title="Longitud de Onda (nm)",
         yaxis_title="Intensidad",
-        template="plotly_dark",
-        coloraxis_colorbar=dict(title="Intensidad"),
-        showlegend=False,
+        template="plotly_white",
+        xaxis=dict(range=[380, 780]),
     )
-
-    # Convertir la figura a una imagen PNG
-    img_data = pio.to_image(fig_a, format="png")
-    img = Image.open(io.BytesIO(img_data))
-
-    # Mostrar la imagen en Tkinter
-    img_tk = ImageTk.PhotoImage(img)
-    label_img_a.config(image=img_tk)
-    label_img_a.image = img_tk  # Mantener una referencia a la imagen
+    return fig
 
 
-# Función para actualizar los datos y graficarlos para Task C
-def actualizar_task_c():
-    global task_c_data
-    task_c_data = np.random.rand(180)  # Simulación de datos en tiempo real
+def wavelength_to_rgb(wavelength):
+    if wavelength < 380 or wavelength > 780:
+        return 0, 0, 0
+    if wavelength < 440:
+        r, g, b = -(wavelength - 440) / (440 - 380), 0, 1
+    elif wavelength < 490:
+        r, g, b = 0, (wavelength - 440) / (490 - 440), 1
+    elif wavelength < 510:
+        r, g, b = 0, 1, -(wavelength - 510) / (510 - 490)
+    elif wavelength < 580:
+        r, g, b = (wavelength - 510) / (580 - 510), 1, 0
+    elif wavelength < 645:
+        r, g, b = 1, -(wavelength - 645) / (645 - 580), 0
+    else:
+        r, g, b = 1, 0, 0
+    factor = (
+        1
+        if wavelength < 420 or wavelength > 645
+        else 0.3 + 0.7 * (wavelength - 380) / (780 - 380)
+    )
+    return (r * factor * 255, g * factor * 255, b * factor * 255)
 
-    # Crear gráfico interactivo para Task C (Distancias por Ángulo)
-    fig_c = go.Figure()
 
-    fig_c.add_trace(
-        go.Scatter(
-            x=np.arange(0, 180),
-            y=task_c_data,
+def generar_datos_lidar():
+    angles = np.linspace(0, 360, 360)
+    distances = 1 + 2 * np.sin(np.radians(angles)) ** 2
+    distances += 0.1 * np.random.uniform(-1, 1, size=360)
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatterpolar(
+            r=distances,
+            theta=angles,
             mode="lines+markers",
-            marker=dict(color="green", size=8),
+            name="LIDAR Data",
+            line=dict(color="blue", width=2),
+            marker=dict(color="black", size=4),
         )
     )
-
-    fig_c.update_layout(
-        title="Distancias por Ángulo (Task C)",
-        xaxis_title="Ángulo (°)",
-        yaxis_title="Distancia",
-        template="plotly_dark",
-        showlegend=False,
+    fig.update_layout(
+        title="LIDAR - Patrón de Radiación Simulado",
+        polar=dict(
+            angularaxis=dict(direction="clockwise", rotation=90, showline=True),
+            radialaxis=dict(title="Distancia", range=[0, 3], showline=True),
+        ),
+        template="plotly_white",
     )
-
-    # Convertir la figura a una imagen PNG
-    img_data = pio.to_image(fig_c, format="png")
-    img = Image.open(io.BytesIO(img_data))
-
-    # Mostrar la imagen en Tkinter
-    img_tk = ImageTk.PhotoImage(img)
-    label_img_c.config(image=img_tk)
-    label_img_c.image = img_tk  # Mantener una referencia a la imagen
+    return fig
 
 
-# Función para actualizar todos los gráficos en intervalos
-def actualizar_todos():
-    actualizar_task_a()
-    actualizar_task_c()
-    root.after(2000, actualizar_todos)  # Actualizar cada 2 segundos
-
-
-# Crear la ventana principal con ttkthemes para un diseño más bonito
-root = ThemedTk(theme="arc")
-root.title("Dashboard - Task A y Task C")
-root.geometry("1000x700")
-
-# Pestañas
-notebook = ttk.Notebook(root)
-notebook.pack(fill="both", expand=True)
-
-# Pestaña Task A
-frame_task_a = ttk.Frame(notebook)
-notebook.add(frame_task_a, text="Task A")
-
-# Pestaña Task C
-frame_task_c = ttk.Frame(notebook)
-notebook.add(frame_task_c, text="Task C")
-
-# --- Contenido de Task A ---
-title_task_a = ttk.Label(
-    frame_task_a,
-    text="Espectro de Intensidades (Task A)",
-    font=("Helvetica", 16, "bold"),
+app.layout = dbc.Container(
+    [
+        dcc.Location(id="url", refresh=False),
+        dbc.NavbarSimple(
+            children=[
+                dbc.NavLink("Espectro de Colores", href="/", active="exact"),
+                dbc.NavLink("Task C - LIDAR", href="/task-c", active="exact"),
+            ],
+            brand="Dashboard",
+            color="primary",
+            dark=True,
+        ),
+        html.Div(id="page-content"),
+    ],
+    fluid=True,
 )
-title_task_a.pack(pady=10)
 
-frame_graph_a = ttk.LabelFrame(frame_task_a, text="Gráfico")
-frame_graph_a.pack(fill="both", expand=True, padx=10, pady=10)
 
-# --- Contenido de Task C ---
-title_task_c = ttk.Label(
-    frame_task_c, text="Distancias por Ángulo (Task C)", font=("Helvetica", 16, "bold")
+layout_espectro = dbc.Container(
+    [
+        dbc.Row(
+            dbc.Col(
+                html.H1("Espectro de Colores", className="text-center mb-4"),
+                width=12,
+            )
+        ),
+        dbc.Row(
+            [
+                dbc.Col(
+                    [
+                        html.Label("Inicio del espectro (nm):"),
+                        dcc.Slider(
+                            id="inicio-slider",
+                            min=380,
+                            max=780,
+                            step=10,
+                            value=400,
+                            marks={380: "380", 780: "780"},
+                        ),
+                        html.Label("Fin del espectro (nm):"),
+                        dcc.Slider(
+                            id="fin-slider",
+                            min=380,
+                            max=780,
+                            step=10,
+                            value=700,
+                            marks={380: "380", 780: "780"},
+                        ),
+                    ],
+                    width=4,
+                ),
+                dbc.Col(dcc.Graph(id="espectro-grafico"), width=8),
+            ]
+        ),
+        dcc.Interval(
+            id="intervalo-actualizacion",
+            interval=1000,
+            n_intervals=0,
+        ),
+    ],
+    fluid=True,
 )
-title_task_c.pack(pady=10)
 
-frame_graph_c = ttk.LabelFrame(frame_task_c, text="Gráfico")
-frame_graph_c.pack(fill="both", expand=True, padx=10, pady=10)
 
-# Labels para mostrar las imágenes generadas
-label_img_a = ttk.Label(frame_graph_a)
-label_img_a.pack(fill="both", expand=True)
+layout_task_c = dbc.Container(
+    [
+        dbc.Row(
+            dbc.Col(
+                html.H1("Task C - LIDAR", className="text-center mb-4"),
+                width=12,
+            )
+        ),
+        dbc.Row(dbc.Col(dcc.Graph(id="lidar-grafico"), width=12)),
+        dcc.Interval(
+            id="lidar-intervalo",
+            interval=2000,
+            n_intervals=0,
+        ),
+    ],
+    fluid=True,
+)
 
-label_img_c = ttk.Label(frame_graph_c)
-label_img_c.pack(fill="both", expand=True)
 
-# Iniciar la actualización en tiempo real
-root.after(2000, actualizar_todos)  # Actualizar cada 2 segundos
+@app.callback(
+    Output("espectro-grafico", "figure"),
+    [
+        Input("inicio-slider", "value"),
+        Input("fin-slider", "value"),
+        Input("intervalo-actualizacion", "n_intervals"),
+    ],
+)
+def actualizar_espectro(inicio, fin, n_intervals):
+    dynamic_factor = 10 * np.sin(n_intervals / 10)
+    return generar_espectro(inicio, fin, dynamic_factor)
 
-# Iniciar el loop principal
-root.mainloop()
+
+@app.callback(
+    Output("lidar-grafico", "figure"),
+    [Input("lidar-intervalo", "n_intervals")],
+)
+def actualizar_lidar(n_intervals):
+    return generar_datos_lidar()
+
+
+@app.callback(
+    Output("page-content", "children"),
+    [Input("url", "pathname")],
+)
+def mostrar_pagina(pathname):
+    if pathname == "/task-c":
+        return layout_task_c
+    else:
+        return layout_espectro
+
+
+if __name__ == "__main__":
+    app.run_server(debug=True)
