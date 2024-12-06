@@ -5,15 +5,20 @@ from dash.dependencies import Input, Output
 import plotly.graph_objects as go
 import json
 
-with open("datos.json", "r") as file:
-    data = json.load(file)
 
+with open("datos.json", "r") as file:
+    espectrometro_data = json.load(file)
+
+
+with open("Lidar.json", "r") as file:
+    lidar_data = json.load(file)
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.COSMO])
 app.title = "Spectrometer & LiDAR Dashboard"
 server = app.server
 
-categories = list(data.keys())
+
+categories = list(espectrometro_data.keys())
 
 
 def generar_grafico_espectrometro(categoria, valores):
@@ -35,17 +40,35 @@ def generar_grafico_espectrometro(categoria, valores):
     return fig
 
 
-def generar_grafico_lidar():
-    theta = [i for i in range(0, 360, 5)]
+def generar_grafico_lidar(data):
+    angles = [entry["angle"] for entry in data]
+    distances = [entry["distance"] for entry in data]
 
+    central_angle = angles[0]
+    central_distance = distances[0]
+
+    # Crear la figura
     fig = go.Figure()
+
+    # Graficar los datos del LiDAR como scatter polar
     fig.add_trace(
         go.Scatterpolar(
-            theta=theta,
+            theta=angles,
+            r=distances,
             mode="lines+markers",
             name="LiDAR Data",
             line=dict(color="black", dash="dot", width=1),
             marker=dict(size=3, color="black"),
+        )
+    )
+
+    fig.add_trace(
+        go.Scatterpolar(
+            theta=[0, central_angle],
+            r=[0, central_distance],
+            mode="lines",
+            name="Línea Central",
+            line=dict(color="red", width=3),
         )
     )
 
@@ -54,30 +77,17 @@ def generar_grafico_lidar():
         polar=dict(
             angularaxis=dict(
                 tickmode="array",
-                tickvals=[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330],
-                ticktext=[
-                    "0",
-                    "30",
-                    "60",
-                    "90",
-                    "120",
-                    "150",
-                    "180",
-                    "-150",
-                    "-120",
-                    "-90",
-                    "-60",
-                    "-30",
-                ],
+                tickvals=list(range(0, 360, 30)),
+                ticktext=list(map(str, range(0, 360, 30))),
                 showline=True,
                 linewidth=1,
                 linecolor="black",
             ),
             radialaxis=dict(
-                tickmode="array",
-                tickvals=[0, 0.75, 1.5, 2.25, 3],
-                ticktext=["0", "0.75", "1.5", "2.25", "3"],
-                range=[0, 3],
+                tickmode="linear",
+                tick0=0,
+                dtick=0.5,
+                range=[0, max(distances)],
                 showline=True,
                 gridcolor="gray",
                 linecolor="black",
@@ -85,10 +95,9 @@ def generar_grafico_lidar():
         ),
         template="plotly_white",
     )
-    return fig
+    return fig, central_angle, central_distance
 
 
-# Layout principal
 app.layout = dbc.Container(
     [
         dbc.Row(
@@ -136,11 +145,21 @@ app.layout = dbc.Container(
                         dcc.Graph(id="espectrometro-grafico"),
                         dcc.Interval(
                             id="intervalo-espectrometro",
-                            interval=2000,  # Intervalo de actualización (ms)
+                            interval=2000,
                             n_intervals=0,
                         ),
                         html.H3("LiDAR - Tarea C", className="text-center mt-4"),
-                        dcc.Graph(id="lidar-grafico", figure=generar_grafico_lidar()),
+                        dcc.Graph(id="lidar-grafico"),
+                        html.Div(
+                            id="informacion-lidar",
+                            children=[html.P("Ángulo: 0°"), html.P("Distancia: 0 m")],
+                            style={"fontSize": "20px", "fontWeight": "bold"},
+                        ),
+                        dcc.Interval(
+                            id="intervalo-lidar",
+                            interval=4000,
+                            n_intervals=0,
+                        ),
                     ],
                     width=6,
                 ),
@@ -151,19 +170,34 @@ app.layout = dbc.Container(
 )
 
 
-# Callback para actualizar el gráfico del espectrómetro
 @app.callback(
     Output("espectrometro-grafico", "figure"),
     [Input("intervalo-espectrometro", "n_intervals")],
 )
 def actualizar_espectrometro(n_intervals):
-    # Seleccionar la categoría basada en el número de intervalos
     category_index = n_intervals % len(categories)
     category = categories[category_index]
-    values = data[category]
+    values = espectrometro_data[category]
     return generar_grafico_espectrometro(category, values)
 
 
-# Ejecutar la app
+@app.callback(
+    [Output("lidar-grafico", "figure"), Output("informacion-lidar", "children")],
+    [Input("intervalo-lidar", "n_intervals")],
+)
+def actualizar_lidar(n_intervals):
+
+    lidar_index = n_intervals % len(lidar_data["lidar_data"])
+    data_segment = lidar_data["lidar_data"][lidar_index : lidar_index + 10]
+    fig, central_angle, central_distance = generar_grafico_lidar(data_segment)
+
+    informacion_lidar = [
+        html.P(f"Ángulo: {central_angle}°"),
+        html.P(f"Distancia: {central_distance} m"),
+    ]
+
+    return fig, informacion_lidar
+
+
 if __name__ == "__main__":
     app.run_server(debug=True)
