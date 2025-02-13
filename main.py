@@ -4,45 +4,78 @@ import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output
 import plotly.graph_objects as go
 import json
+import numpy as np
 
-
-with open("datos.json", "r") as file:
-    espectrometro_data = json.load(file)
-
-
-with open("Lidar.json", "r") as file:
+# Cargar datos del LiDAR desde el archivo data.json (se mantiene esta parte)
+with open("data.json", "r") as file:
     lidar_data = json.load(file)
 
+# Inicializar la app con el tema COSMO de Bootstrap
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.COSMO])
 app.title = "Spectrometer & LiDAR Dashboard"
 server = app.server
 
 
-categories = list(espectrometro_data.keys())
-
-
-def generar_grafico_espectrometro(categoria, valores):
+# =============================================================================
+# Funciones para el espectrómetro (adaptadas del primer código)
+# =============================================================================
+def generar_espectro(inicio, fin, dynamic_factor=0):
+    wavelengths = np.linspace(380, 780, 400)
+    intensities = np.exp(
+        -0.5 * ((wavelengths - (inicio + fin) / 2 + dynamic_factor) ** 2) / 4000
+    )
+    colors = [
+        f"rgb({int(r)}, {int(g)}, {int(b)})"
+        for r, g, b in [wavelength_to_rgb(w) for w in wavelengths]
+    ]
     fig = go.Figure()
     fig.add_trace(
-        go.Scatter(
-            x=[f"λ{i+1}" for i in range(len(valores))],
-            y=valores,
-            mode="lines+markers",
-            name=categoria,
+        go.Bar(
+            x=wavelengths,
+            y=intensities,
+            marker=dict(color=colors),
+            showlegend=False,
         )
     )
     fig.update_layout(
-        title=f"Categoría: {categoria.replace('_', ' ').capitalize()}",
-        xaxis_title="Longitud de Onda (λ)",
+        title="Espectro de Colores",
+        xaxis_title="Longitud de Onda (nm)",
         yaxis_title="Intensidad",
         template="plotly_white",
+        xaxis=dict(range=[380, 780]),
     )
     return fig
 
 
+def wavelength_to_rgb(wavelength):
+    if wavelength < 380 or wavelength > 780:
+        return 0, 0, 0
+    if wavelength < 440:
+        r, g, b = -(wavelength - 440) / (440 - 380), 0, 1
+    elif wavelength < 490:
+        r, g, b = 0, (wavelength - 440) / (490 - 440), 1
+    elif wavelength < 510:
+        r, g, b = 0, 1, -(wavelength - 510) / (510 - 490)
+    elif wavelength < 580:
+        r, g, b = (wavelength - 510) / (580 - 510), 1, 0
+    elif wavelength < 645:
+        r, g, b = 1, -(wavelength - 645) / (645 - 580), 0
+    else:
+        r, g, b = 1, 0, 0
+    factor = (
+        1
+        if wavelength < 420 or wavelength > 645
+        else 0.3 + 0.7 * (wavelength - 380) / (780 - 380)
+    )
+    return (r * factor * 255, g * factor * 255, b * factor * 255)
+
+
+# =============================================================================
+# Función para generar el gráfico LiDAR (se mantiene del segundo código)
+# =============================================================================
 def generar_grafico_lidar(data):
-    angles = [entry["angle"] for entry in data]
-    distances = [entry["distance"] for entry in data]
+    angles = data["a"]
+    distances = data["d"]
 
     central_angle = angles[0]
     central_distance = distances[0]
@@ -98,6 +131,9 @@ def generar_grafico_lidar(data):
     return fig, central_angle, central_distance
 
 
+# =============================================================================
+# Diseño del layout adaptado
+# =============================================================================
 app.layout = dbc.Container(
     [
         dbc.Row(
@@ -110,6 +146,7 @@ app.layout = dbc.Container(
         ),
         dbc.Row(
             [
+                # Columna de la cámara
                 dbc.Col(
                     [
                         html.H3("Cámara", className="text-center"),
@@ -139,10 +176,42 @@ app.layout = dbc.Container(
                     ],
                     width=6,
                 ),
+                # Columna del espectrómetro y LiDAR
                 dbc.Col(
                     [
                         html.H3("Espectrómetro", className="text-center"),
-                        dcc.Graph(id="espectrometro-grafico"),
+                        dbc.Row(
+                            [
+                                dbc.Col(
+                                    [
+                                        html.Label("Inicio del espectro (nm):"),
+                                        dcc.Slider(
+                                            id="inicio-slider",
+                                            min=380,
+                                            max=780,
+                                            step=10,
+                                            value=400,
+                                            marks={380: "380", 780: "780"},
+                                        ),
+                                        html.Label("Fin del espectro (nm):"),
+                                        dcc.Slider(
+                                            id="fin-slider",
+                                            min=380,
+                                            max=780,
+                                            step=10,
+                                            value=700,
+                                            marks={380: "380", 780: "780"},
+                                        ),
+                                    ],
+                                    width=4,
+                                ),
+                                dbc.Col(
+                                    dcc.Graph(id="espectrometro-grafico"),
+                                    width=8,
+                                ),
+                            ]
+                        ),
+                        # Intervalo para actualizar el espectrómetro
                         dcc.Interval(
                             id="intervalo-espectrometro",
                             interval=2000,
@@ -170,32 +239,34 @@ app.layout = dbc.Container(
 )
 
 
+# =============================================================================
+# Callbacks
+# =============================================================================
+# Callback para actualizar el espectrómetro usando los valores de los sliders
 @app.callback(
     Output("espectrometro-grafico", "figure"),
-    [Input("intervalo-espectrometro", "n_intervals")],
+    [
+        Input("inicio-slider", "value"),
+        Input("fin-slider", "value"),
+        Input("intervalo-espectrometro", "n_intervals"),
+    ],
 )
-def actualizar_espectrometro(n_intervals):
-    category_index = n_intervals % len(categories)
-    category = categories[category_index]
-    values = espectrometro_data[category]
-    return generar_grafico_espectrometro(category, values)
+def actualizar_espectrometro(inicio, fin, n_intervals):
+    dynamic_factor = 10 * np.sin(n_intervals / 10)
+    return generar_espectro(inicio, fin, dynamic_factor)
 
 
+# Callback para actualizar el LiDAR
 @app.callback(
     [Output("lidar-grafico", "figure"), Output("informacion-lidar", "children")],
     [Input("intervalo-lidar", "n_intervals")],
 )
 def actualizar_lidar(n_intervals):
-
-    lidar_index = n_intervals % len(lidar_data["lidar_data"])
-    data_segment = lidar_data["lidar_data"][lidar_index : lidar_index + 10]
-    fig, central_angle, central_distance = generar_grafico_lidar(data_segment)
-
+    fig, central_angle, central_distance = generar_grafico_lidar(lidar_data)
     informacion_lidar = [
         html.P(f"Ángulo: {central_angle}°"),
         html.P(f"Distancia: {central_distance} m"),
     ]
-
     return fig, informacion_lidar
 
 
